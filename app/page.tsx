@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { PlusCircle, Droplets, Trash2, Edit } from "lucide-react"
+import { PlusCircle, Droplets, Trash2, Edit, Bluetooth } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -17,6 +17,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog"
 import { useToast } from "@/hooks/use-toast"
+import { Slider } from "@/components/ui/slider"
 
 interface Plant {
   id: string
@@ -25,17 +26,24 @@ interface Plant {
   lastWatered: Date
   wateringFrequency: number // in days
   image: string
+  moistureLevel: number // 0-100
+  moistureThreshold: number // 0-100
+  lastMoistureReading: Date
+}
+
+type NewPlantForm = Omit<Plant, "id" | "lastWatered" | "lastMoistureReading"> & { 
+  wateringFrequency: number | "custom" 
 }
 
 export default function PlantReminder() {
   const [plants, setPlants] = useState<Plant[]>([])
-  const [newPlant, setNewPlant] = useState<
-    Omit<Plant, "id" | "lastWatered"> & { wateringFrequency: number | "custom" }
-  >({
+  const [newPlant, setNewPlant] = useState<NewPlantForm>({
     name: "",
     type: "",
     wateringFrequency: 7,
     image: "/placeholder.svg?height=100&width=100",
+    moistureLevel: 50,
+    moistureThreshold: 30,
   })
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false)
   const [editingPlant, setEditingPlant] = useState<Plant | null>(null)
@@ -50,6 +58,7 @@ export default function PlantReminder() {
       const plantsWithDates = parsedPlants.map((plant: any) => ({
         ...plant,
         lastWatered: new Date(plant.lastWatered),
+        lastMoistureReading: new Date(plant.lastMoistureReading),
       }))
       setPlants(plantsWithDates)
     }
@@ -70,7 +79,7 @@ export default function PlantReminder() {
       return
     }
 
-    if (newPlant.wateringFrequency === "custom" || typeof newPlant.wateringFrequency !== "number") {
+    if (newPlant.wateringFrequency === "custom") {
       toast({
         title: "Invalid watering frequency",
         description: "Please enter a valid number of days",
@@ -81,8 +90,14 @@ export default function PlantReminder() {
 
     const plant: Plant = {
       id: Date.now().toString(),
-      ...newPlant,
+      name: newPlant.name,
+      type: newPlant.type,
+      wateringFrequency: newPlant.wateringFrequency,
+      image: newPlant.image,
+      moistureLevel: newPlant.moistureLevel,
+      moistureThreshold: newPlant.moistureThreshold,
       lastWatered: new Date(),
+      lastMoistureReading: new Date(),
     }
 
     setPlants([...plants, plant])
@@ -91,6 +106,8 @@ export default function PlantReminder() {
       type: "",
       wateringFrequency: 7,
       image: "/placeholder.svg?height=100&width=100",
+      moistureLevel: 50,
+      moistureThreshold: 30,
     })
     setIsAddDialogOpen(false)
 
@@ -103,17 +120,7 @@ export default function PlantReminder() {
   const updatePlant = () => {
     if (!editingPlant) return
 
-    if (editingPlant.wateringFrequency === "custom" || typeof editingPlant.wateringFrequency !== "number") {
-      toast({
-        title: "Invalid watering frequency",
-        description: "Please enter a valid number of days",
-        variant: "destructive",
-      })
-      return
-    }
-
     setPlants(plants.map((plant) => (plant.id === editingPlant.id ? editingPlant : plant)))
-
     setEditingPlant(null)
 
     toast({
@@ -152,7 +159,16 @@ export default function PlantReminder() {
 
   const needsWatering = (plant: Plant) => {
     const daysSinceLastWatered = getDaysSinceLastWatered(plant.lastWatered)
-    return daysSinceLastWatered >= plant.wateringFrequency
+    const moistureBelowThreshold = plant.moistureLevel < plant.moistureThreshold
+    return daysSinceLastWatered >= plant.wateringFrequency && moistureBelowThreshold
+  }
+
+  const updateMoistureLevel = (id: string, level: number) => {
+    setPlants(plants.map((plant) => 
+      plant.id === id 
+        ? { ...plant, moistureLevel: level, lastMoistureReading: new Date() }
+        : plant
+    ))
   }
 
   return (
@@ -198,12 +214,13 @@ export default function PlantReminder() {
                 <Label htmlFor="frequency">Watering Frequency (days)</Label>
                 <Select
                   value={newPlant.wateringFrequency.toString()}
-                  onValueChange={(value) =>
-                    setNewPlant({
-                      ...newPlant,
-                      wateringFrequency: value === "custom" ? "custom" : Number.parseInt(value),
-                    })
-                  }
+                  onValueChange={(value) => {
+                    if (value === "custom") {
+                      setNewPlant({ ...newPlant, wateringFrequency: "custom" })
+                    } else {
+                      setNewPlant({ ...newPlant, wateringFrequency: parseInt(value) })
+                    }
+                  }}
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="Select frequency" />
@@ -272,12 +289,14 @@ export default function PlantReminder() {
                   <Label htmlFor="edit-frequency">Watering Frequency (days)</Label>
                   <Select
                     value={editingPlant.wateringFrequency.toString()}
-                    onValueChange={(value) =>
-                      setEditingPlant({
-                        ...editingPlant,
-                        wateringFrequency: value === "custom" ? "custom" : Number.parseInt(value),
-                      })
-                    }
+                    onValueChange={(value) => {
+                      if (!editingPlant) return
+                      if (value === "custom") {
+                        setEditingPlant({ ...editingPlant, wateringFrequency: "custom" })
+                      } else {
+                        setEditingPlant({ ...editingPlant, wateringFrequency: parseInt(value) })
+                      }
+                    }}
                   >
                     <SelectTrigger>
                       <SelectValue />
@@ -388,6 +407,56 @@ export default function PlantReminder() {
                     <p className="text-xs text-muted-foreground">
                       Last watered: {plant.lastWatered.toLocaleDateString()}
                     </p>
+                  </div>
+
+                  <div className="w-full space-y-2">
+                    <div className="flex justify-between items-center">
+                      <Label>Soil Moisture: {plant.moistureLevel}%</Label>
+                      <Button 
+                        variant="ghost" 
+                        size="sm"
+                        onClick={() => {
+                          // Simulate Bluetooth sensor reading
+                          const simulatedReading = Math.floor(Math.random() * 100)
+                          updateMoistureLevel(plant.id, simulatedReading)
+                          toast({
+                            title: "Moisture Reading Updated",
+                            description: `New reading: ${simulatedReading}%`,
+                          })
+                        }}
+                      >
+                        <Bluetooth className="h-4 w-4 mr-2" />
+                        Update Reading
+                      </Button>
+                    </div>
+                    <div className="flex items-center gap-4">
+                      <Slider
+                        value={[plant.moistureLevel]}
+                        onValueChange={([value]) => updateMoistureLevel(plant.id, value)}
+                        min={0}
+                        max={100}
+                        step={1}
+                        className="flex-1"
+                      />
+                      <div className="w-24">
+                        <Input
+                          type="number"
+                          min={0}
+                          max={100}
+                          value={plant.moistureThreshold}
+                          onChange={(e) => {
+                            const value = Math.min(100, Math.max(0, parseInt(e.target.value) || 0))
+                            setPlants(plants.map((p) => 
+                              p.id === plant.id ? { ...p, moistureThreshold: value } : p
+                            ))
+                          }}
+                          className="text-center"
+                        />
+                      </div>
+                    </div>
+                    <div className="text-xs text-muted-foreground">
+                      Last reading: {plant.lastMoistureReading.toLocaleTimeString()}
+                    </div>
                   </div>
                 </CardContent>
                 <CardFooter>
